@@ -7,7 +7,7 @@ services:
     expose:
       - "5000"
     env_file:
-      - ./backend/.env 
+      - .env 
     volumes:
       # PERSISTENCE: Save database and images on the host machine
       - ./backend/database.db:/app/database.db
@@ -34,6 +34,8 @@ services:
     container_name: aec-cloudflared
     restart: unless-stopped
     command: tunnel run
+    env_file:
+      - .env
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}   
 
