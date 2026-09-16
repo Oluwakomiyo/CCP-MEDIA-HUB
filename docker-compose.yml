@@ -2,10 +2,10 @@ version: '3.8'
 
 services:
   backend:
-    build: ./backend
+    image: ${BACKEND_IMAGE}:${IMAGE_TAG}
     container_name: aec-backend
-    ports:
-      - "5000:5000"
+    expose:
+      - "5000"
     env_file:
       - ./backend/.env 
     volumes:
@@ -20,16 +20,13 @@ services:
        retries: 3
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        # Change this to your public URL when deploying
-        - NEXT_PUBLIC_API_URL=http://localhost:5000
+    image: ${FRONTEND_IMAGE}:${IMAGE_TAG}
     container_name: aec-frontend
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
   cloudflared:

@@ -1,0 +1,224 @@
+name: Build and Deploy AEC Application
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/aec-backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/aec-frontend
+
+jobs:
+
+  # ============================================================
+  # 1. BUILD & PUSH DOCKER IMAGES
+  # ============================================================
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout source code
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # Generate image tag
+      #
+      # Example:
+      # 8f31a2c
+      # --------------------------------------------------------
+      - name: Generate image tag
+        id: meta
+        run: |
+          echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # --------------------------------------------------------
+      # Setup Docker Buildx
+      # --------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # --------------------------------------------------------
+      # Login to GitHub Container Registry
+      # --------------------------------------------------------
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --------------------------------------------------------
+      # Build and push BACKEND
+      # --------------------------------------------------------
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
+            ${{ env.BACKEND_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # --------------------------------------------------------
+      # Build and push FRONTEND
+      # --------------------------------------------------------
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:${{ steps.meta.outputs.image_tag }}
+            ${{ env.FRONTEND_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+
+  # ============================================================
+  # 2. DEPLOY TO LINUX VM
+  # ============================================================
+  deploy:
+    name: Deploy to Linux VM
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+
+      # --------------------------------------------------------
+      # SSH into Linux VM and deploy
+      # --------------------------------------------------------
+      - name: Deploy application
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.VM_SSH_PORT }}
+          
+          script: | 
+            set -e
+
+            # ==================================================
+            # Application directory
+            # ==================================================
+
+            cd /opt/aec
+
+            # ==================================================
+            # Login to GitHub Container Registry
+            # ==================================================
+
+            echo "${{ secrets.GHCR_TOKEN }}" | \
+              docker login ghcr.io \
+              -u "${{ secrets.GHCR_USERNAME }}" \
+              --password-stdin
+
+            # ==================================================
+            # Export image tag
+            # ==================================================
+
+            export IMAGE_TAG="${{ needs.build-and-push.outputs.image_tag }}"
+
+            export BACKEND_IMAGE="ghcr.io/${{ github.repository_owner }}/aec-backend"
+            export FRONTEND_IMAGE="ghcr.io/${{ github.repository_owner }}/aec-frontend"
+
+            # ==================================================
+            # Pull the EXACT images created by this deployment
+            # ==================================================
+
+            docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}"
+            docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}"
+
+            # ==================================================
+            # Create deployment environment file
+            #
+            # docker-compose.yml will use these variables.
+            # ==================================================
+
+            cat > .deployment.env <<EOF
+            BACKEND_IMAGE=${BACKEND_IMAGE}
+            FRONTEND_IMAGE=${FRONTEND_IMAGE}
+            IMAGE_TAG=${IMAGE_TAG}
+            EOF
+
+            # ==================================================
+            # Deploy
+            # ==================================================
+
+            docker compose \
+              --env-file .deployment.env \
+              up -d \
+              --remove-orphans
+
+            # ==================================================
+            # Wait for containers to start
+            # ==================================================
+
+            sleep 15
+
+            # ==================================================
+            # Show container status
+            # ==================================================
+
+            docker compose ps
+
+            # ==================================================
+            # Check backend health
+            # ==================================================
+
+            if ! docker inspect \
+              --format='{{.State.Health.Status}}' \
+              aec-backend | grep -q "healthy"; then
+
+              echo "Backend health check failed!"
+              docker compose logs --tail=100 backend
+              exit 1
+            fi
+
+            # ==================================================
+            # Check frontend is running
+            # ==================================================
+
+            if ! docker inspect \
+              --format='{{.State.Status}}' \
+              aec-frontend | grep -q "running"; then
+
+              echo "Frontend is not running!"
+              docker compose logs --tail=100 frontend
+              exit 1
+            fi
+
+            # ==================================================
+            # Cleanup old unused Docker images
+            # ==================================================
+
+            docker image prune -af
+
+            # ==================================================
+            # Deployment successful
+            # ==================================================
+
+            echo "=========================================="
+            echo "AEC deployment successful"
+            echo "Image tag: ${IMAGE_TAG}"
+            echo "=========================================="
