@@ -120,7 +120,10 @@ jobs:
 
   deploy:
     name: Deploy to Linux VM
-    runs-on: ubuntu-latest
+    runs-on: 
+      - self-hosted 
+      - linux 
+      - x64
 
     needs:
       - build-and-push
@@ -131,18 +134,15 @@ jobs:
       # SSH into Linux VM and deploy
       # --------------------------------------------------------
 
-      - name: Deploy application
-        uses: appleboy/ssh-action@v1.2.2
+      - name: Deploy application 
+        shell: bash 
+        run: | 
 
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USERNAME }}
-          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
-          port: ${{ secrets.VM_SSH_PORT }}
-
-          script: |
-
-            set -e
+          set -e 
+          
+          echo "==========================================" 
+          echo "Starting AEC deployment" 
+          echo "=========================================="
 
             # ==================================================
             # Application directory
@@ -170,6 +170,7 @@ jobs:
             export FRONTEND_IMAGE="ghcr.io/${IMAGE_OWNER}/aec-frontend"
 
             echo "Deploying image tag: ${IMAGE_TAG}"
+            echo "Image owner: ${IMAGE_OWNER}"
             echo "Backend image: ${BACKEND_IMAGE}"
             echo "Frontend image: ${FRONTEND_IMAGE}"
 
@@ -177,7 +178,12 @@ jobs:
             # Pull the EXACT images created by this deployment
             # ==================================================
 
+            echo "Pulling backend image..."
+
             docker pull "${BACKEND_IMAGE}:${IMAGE_TAG}"
+
+            echo "Pulling frontend image..."
+
             docker pull "${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
             # ==================================================
@@ -196,6 +202,8 @@ jobs:
             # Deploy
             # ==================================================
 
+            echo "Starting Docker Compose..."
+
             docker compose \
               --env-file .deployment.env \
               up -d \
@@ -205,17 +213,23 @@ jobs:
             # Wait for containers to start
             # ==================================================
 
+            echo "Waiting for containers to start..."
+            
             sleep 15
 
             # ==================================================
             # Show container status
             # ==================================================
 
+            echo "Container status:"
+
             docker compose ps
 
             # ==================================================
             # Check backend health
             # ==================================================
+
+            echo "Checking backend health..."
 
             if ! docker inspect \
               --format='{{.State.Health.Status}}' \
@@ -228,9 +242,13 @@ jobs:
               exit 1
             fi
 
+            echo "Backend is healthy."
+
             # ==================================================
             # Check frontend is running
             # ==================================================
+
+            echo "Checking frontend status..."
 
             if ! docker inspect \
               --format='{{.State.Status}}' \
@@ -243,10 +261,14 @@ jobs:
               exit 1
             fi
 
+            echo "Frontend is running."
+
             # ==================================================
             # Cleanup old unused Docker images
             # ==================================================
 
+            echo "Cleaning up unused Docker images..."
+            
             docker image prune -af
 
             # ==================================================
