@@ -144,7 +144,7 @@ jobs:
         run: |
           set -e
 
-          sudo rsync -a \
+          rsync -a \
             --delete \
             --exclude='.env' \
             --exclude='.deployment.env' \
