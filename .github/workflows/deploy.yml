@@ -131,6 +131,28 @@ jobs:
     steps:
 
       # --------------------------------------------------------
+      # Update /opt/aec with latest source code
+      # --------------------------------------------------------
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: aec-source
+
+      - name: Update /opt/aec
+        shell: bash
+        run: |
+          set -e
+
+          sudo rsync -a \
+            --delete \
+            --exclude='.env' \
+            --exclude='.deployment.env' \
+            --exclude='backend/database.db' \
+            --exclude='backend/uploads/' \
+            aec-source/ /opt/aec/
+
+      # --------------------------------------------------------
       # SSH into Linux VM and deploy
       # --------------------------------------------------------
 
