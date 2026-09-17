@@ -14,7 +14,7 @@ services:
       - ./backend/uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
-       test: ["CMD", "wget", "--spider", "http://localhost:5000/health"]
+       test: ["CMD", "wget", "--spider", "http://127.0.0.1:5000/"]
        interval: 30s
        timeout: 10s
        retries: 3
@@ -33,11 +33,9 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: aec-cloudflared
     restart: unless-stopped
-    command: tunnel run
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     env_file:
-      - .env
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}   
+      - .env   
 
 networks:
   default:
