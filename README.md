@@ -20,7 +20,7 @@ A modern, full-stack project repository and digital showcase system designed for
 ### 1. Clone the repository
 ```bash
 git clone https://github.com/Oluwakomiyo/ccp-media-hub.git
-cd MEDIA-HUB
+cd ccp-media-hub
 ```
 
 ### 2. Setup Backend (Server)
